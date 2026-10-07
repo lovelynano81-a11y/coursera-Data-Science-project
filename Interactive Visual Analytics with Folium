@@ -1,1 +1,293 @@
+import piplite
+await piplite.install(['folium'])
+await piplite.install(['pandas'])
+import folium
+import pandas as pd
+# Import folium MarkerCluster plugin
+from folium.plugins import MarkerCluster
+# Import folium MousePosition plugin
+from folium.plugins import MousePosition
+# Import folium DivIcon plugin
+from folium.features import DivIcon
+## Task 1: Mark all launch sites on a map
+# define the world map
+world_map = folium.Map()
 
+# display world map
+world_map
+# Download and read the `spacex_launch_geo.csv`
+from js import fetch
+import io
+
+URL = 'https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBM-DS0321EN-SkillsNetwork/datasets/spacex_launch_geo.csv'
+resp = await fetch(URL)
+spacex_csv_file = io.BytesIO((await resp.arrayBuffer()).to_py())
+spacex_df=pd.read_csv(spacex_csv_file)
+# Select relevant sub-columns: `Launch Site`, `Lat(Latitude)`, `Long(Longitude)`, `class`
+spacex_df = spacex_df[['Launch Site', 'Lat', 'Long', 'class']]
+launch_sites_df = spacex_df.groupby(['Launch Site'], as_index=False).first()
+launch_sites_df = launch_sites_df[['Launch Site', 'Lat', 'Long']]
+launch_sites_df
+# Start location is NASA Johnson Space Center
+nasa_coordinate = [29.559684888503615, -95.0830971930759]
+site_map = folium.Map(location=nasa_coordinate, zoom_start=10)
+# Create a blue circle at NASA Johnson Space Center's coordinate with a popup label showing its name
+circle = folium.Circle(nasa_coordinate, radius=1000, color='#d35400', fill=True).add_child(folium.Popup('NASA Johnson Space Center'))
+# Create a blue circle at NASA Johnson Space Center's coordinate with a icon showing its name
+marker = folium.map.Marker(
+    nasa_coordinate,
+    # Create an icon as a text label
+    icon=DivIcon(
+        icon_size=(20,20),
+        icon_anchor=(0,0),
+        html='<div style="font-size: 12; color:#d35400;"><b>%s</b></div>' % 'NASA JSC',
+        )
+    )
+site_map.add_child(circle)
+site_map.add_child(marker)
+# Initial the map
+site_map = folium.Map(location=nasa_coordinate, zoom_start=5)
+# For each launch site, add a Circle object based on its coordinate (Lat, Long) values. In addition, add Launch site name as a popup label
+for index, row in launch_sites_df.iterrows():
+    coordinate = [row['Lat'], row['Long']]
+    launch_site_name = row['Launch Site']
+# Circle hinzufügen
+    circle = folium.Circle(
+        location=coordinate, 
+        radius=1000, 
+        color='#d35400', 
+        fill=True
+    ).add_child(folium.Popup(launch_site_name))
+    
+    # Marker (mit Beschriftung) hinzufügen
+    marker = folium.map.Marker(
+        coordinate,
+        icon=DivIcon(
+            icon_size=(20, 20),
+            icon_anchor=(0, 0),
+            html='<div style="font-size: 12; color:#d35400;"><b>%s</b></div>' % launch_site_name
+        )
+    )
+    
+    # Objekte zur Karte hinzufügen
+    site_map.add_child(circle)
+    site_map.add_child(marker)
+
+# Karte anzeigen
+site_map
+spacex_df.tail(10)
+marker_cluster = MarkerCluster()
+# MarkerCluster-Objekt erstellen und zur Karte hinzufügen
+marker_cluster = MarkerCluster()
+site_map.add_child(marker_cluster)
+
+# 1. TODO: Neue Spalte 'marker_color' im DataFrame 'spacex_df' erstellen
+# Wenn class=1 (erfolgreich), dann 'green', sonst 'red'
+def assign_marker_color(launch_class):
+    if launch_class == 1:
+        return 'green'
+    else:
+        return 'red'
+
+spacex_df['marker_color'] = spacex_df['class'].apply(assign_marker_color)
+
+# 2. TODO: Für jeden Start in 'spacex_df' einen Marker zum 'marker_cluster' hinzufügen
+for index, record in spacex_df.iterrows():
+    coordinate = [record['Lat'], record['Long']]
+    
+    # Marker-Objekt mit angepasster Farbe erstellen
+    marker = folium.Marker(
+        location=coordinate,
+        icon=folium.Icon(color='white', icon_color=record['marker_color'])
+    )
+    
+    # Marker zum Cluster hinzufügen
+    marker_cluster.add_child(marker)
+
+# Karte anzeigen
+site_map
+# Add marker_cluster to current site_map
+site_map.add_child(marker_cluster)
+
+# for each row in spacex_df data frame
+# create a Marker object with its coordinate
+# and customize the Marker's icon property to indicate if this launch was successed or failed, 
+# e.g., icon=folium.Icon(color='white', icon_color=row['marker_color']
+for index, record in spacex_df.iterrows():
+    # TODO: Create and add a Marker cluster to the site map
+    # marker = folium.Marker(...)
+    marker_cluster.add_child(marker)
+
+site_map
+# TASK 3: Calculate the distances between a launch site to its proximities
+# 1. MousePosition zur Karte hinzufügen
+formatter = "function(num) {return L.Util.formatNum(num, 5);};"
+mouse_position = MousePosition(
+    position='topright',
+    separator=' Long: ',
+    empty_string='NaN',
+    lng_first=False,
+    num_digits=20,
+    prefix='Lat:',
+    lat_formatter=formatter,
+    lng_formatter=formatter,
+)
+site_map.add_child(mouse_position)
+
+# 2. Haversine-Formel zur Distanzberechnung
+from math import sin, cos, sqrt, atan2, radians
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    # Ungefährer Erdradius in km
+    R = 6373.0
+
+    lat1 = radians(lat1)
+    lon1 = radians(lon1)
+    lat2 = radians(lat2)
+    lon2 = radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    distance = R * c
+    return distance
+
+# 3. TODO: Koordinaten des Startplatzes und des nächstgelegenen Küstenpunkts definieren
+launch_site_lat = 28.563197
+launch_site_lon = -80.576820
+coastline_lat = 28.56367
+coastline_lon = -80.56721
+
+# Distanz berechnen
+distance_coastline = calculate_distance(launch_site_lat, launch_site_lon, coastline_lat, coastline_lon)
+
+# 4. TODO: Marker an der Küste mit der berechneten Distanz erstellen
+distance_marker = folium.Marker(
+    [coastline_lat, coastline_lon],
+    icon=DivIcon(
+        icon_size=(20, 20),
+        icon_anchor=(0, 0),
+        html='<div style="font-size: 12; color:#d35400;"><b>{:10.2f} KM</b></div>'.format(distance_coastline),
+    )
+)
+site_map.add_child(distance_marker)
+
+# 5. TODO: PolyLine zwischen Startplatz und Küstenpunkt zeichnen
+lines = folium.PolyLine(
+    locations=[[launch_site_lat, launch_site_lon], [coastline_lat, coastline_lon]],
+    weight=1
+)
+site_map.add_child(lines)
+
+# Karte anzeigen
+site_map
+# Add Mouse Position to get the coordinate (Lat, Long) for a mouse over on the map
+formatter = "function(num) {return L.Util.formatNum(num, 5);};"
+mouse_position = MousePosition(
+    position='topright',
+    separator=' Long: ',
+    empty_string='NaN',
+    lng_first=False,
+    num_digits=20,
+    prefix='Lat:',
+    lat_formatter=formatter,
+    lng_formatter=formatter,
+)
+
+site_map.add_child(mouse_position)
+site_map
+from math import sin, cos, sqrt, atan2, radians
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    # approximate radius of earth in km
+    R = 6373.0
+
+    lat1 = radians(lat1)
+    lon1 = radians(lon1)
+    lat2 = radians(lat2)
+    lon2 = radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    distance = R * c
+    return distance
+# find coordinate of the closet coastline
+# e.g.,: Lat: 28.56367  Lon: -80.57163
+# distance_coastline = calculate_distance(launch_site_lat, launch_site_lon, coastline_lat, coastline_lon)
+# Define coordinates (example coordinates for launch site and coastline)
+launch_site_lat = 28.563197
+launch_site_lon = -80.576820
+coastline_lat = 28.56367
+coastline_lon = -80.56721
+
+# 2. Calculate distance to coastline
+distance_coastline = calculate_distance(launch_site_lat, launch_site_lon, coastline_lat, coastline_lon)
+# Create and add a folium.Marker on your selected closest coastline point on the map
+# Display the distance between coastline point and launch site using the icon property 
+# for example
+# distance_marker = folium.Marker(
+#    coordinate,
+#    icon=DivIcon(
+#        icon_size=(20,20),
+#        icon_anchor=(0,0),
+#        html='<div style="font-size: 12; color:#d35400;"><b>%s</b></div>' % "{:10.2f} KM".format(distance),
+#        )
+#    )
+# 3. Create marker at the coastline displaying the distance
+distance_marker = folium.Marker(
+    [coastline_lat, coastline_lon],
+    icon=DivIcon(
+        icon_size=(20, 20),
+        icon_anchor=(0, 0),
+        html='<div style="font-size: 12; color:#d35400;"><b>{:10.2f} KM</b></div>'.format(distance_coastline),
+    )
+)
+site_map.add_child(distance_marker)
+# Create a `folium.PolyLine` object using the coastline coordinates and launch site coordinate
+# lines=folium.PolyLine(locations=coordinates, weight=1)
+lines = folium.PolyLine(
+    locations=[[launch_site_lat, launch_site_lon], [coastline_lat, coastline_lon]],
+    weight=1
+)
+site_map.add_child(lines)
+# Create a marker with distance to a closest city, railway, highway, etc.
+# Draw a line between the marker to the launch site
+def add_distance_line(map_obj, launch_lat, launch_lon, target_lat, target_lon):
+    # Calculate distance
+    distance = calculate_distance(launch_lat, launch_lon, target_lat, target_lon)
+    
+    # Create marker displaying the distance
+    marker = folium.Marker(
+        [target_lat, target_lon],
+        icon=DivIcon(
+            icon_size=(20, 20),
+            icon_anchor=(0, 0),
+            html='<div style="font-size: 12; color:#d35400;"><b>{:10.2f} KM</b></div>'.format(distance),
+        )
+    )
+    map_obj.add_child(marker)
+    
+    # Draw connecting line
+    line = folium.PolyLine(
+        locations=[[launch_lat, launch_lon], [target_lat, target_lon]],
+        weight=1
+    )
+    map_obj.add_child(line)
+# Example coordinates for nearest railway, highway, and city (e.g., Melbourne, FL)
+railway_lat, railway_lon = 28.5721, -80.58527
+highway_lat, highway_lon = 28.5632, -80.5707
+city_lat, city_lon = 28.1063, -80.6373
+# Add distance lines to map
+add_distance_line(site_map, launch_site_lat, launch_site_lon, railway_lat, railway_lon)
+add_distance_line(site_map, launch_site_lat, launch_site_lon, highway_lat, highway_lon)
+add_distance_line(site_map, launch_site_lat, launch_site_lon, city_lat, city_lon)
+
+# Display the map
+site_map
